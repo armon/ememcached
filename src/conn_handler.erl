@@ -2,16 +2,17 @@
 -include("constants.hrl").
 -compile(export_all).
 -behavior(supervisor).
--export([start/0,init/1]).
+-export([start/0,start_link/0,init/1]).
 
 % This module is responsible for listening for incoming
 % network connections, parsing the requests, and interfacing
 % with the backend
 
-% Starts the connection handler
-start() -> spawn(fun() -> 
-        {ok, _Pid} = supervisor:start_link({local,?MODULE},?MODULE,[])
-    end).
+% Starts the connection handler in a separate process
+start() -> spawn(fun() -> start_link() end).
+
+% Starts the connection handler in the current process
+start_link() -> {ok, _Pid} = supervisor:start_link({local,?MODULE},?MODULE,[]).
 
 % Setup the supervisor to create a network listener which is
 % automatically restarted on failure
@@ -22,7 +23,7 @@ init([]) ->
 
 % Listens on a socket and waits for incoming clients
 start_listener() ->
-    {ok, Listen} = gen_tcp:listen(?DEFAULT_PORT, [binary,{reuseaddr,true},{active,false},{backlog,50},{packet,0}]),
+    {ok, Listen} = gen_tcp:listen(?DEFAULT_PORT, [binary,{reuseaddr,true},{active,false},{backlog,50},{packet,raw}]),
     error_logger:info_report("Listening for connections"),
     accept_loop(Listen).
 
