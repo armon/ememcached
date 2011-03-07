@@ -81,11 +81,22 @@ receive_loop(Socket, Data, Timeout) ->
 
 % Handles a binary connection
 % @spec binary_handler(Socket(), iolist()) -> void()
-binary_handler(Socket, Data) -> true.
+binary_handler(_Socket, _Data) -> true.
 
 % Handles an ASCII connection
 % @spec ascii_handler(Socket(), iolist()) -> void()
-ascii_handler(Socket, Data) -> true.
+ascii_handler(Socket, Data) -> 
+    case ascii_handler:match_request(Data) of
+        {true, Captured} ->
+            ascii_handler:handle_request(Socket, Data, Captured);
 
+        false ->
+            {Socket, DataPlus} = receive_loop(Socket, Data, infinity),
+            ascii_handler(Socket, DataPlus);
+
+        impossible ->
+            gen_tcp:send(Socket, io_lib:format(?ASCII_CLIENT_ERR, ["Invalid Request Line"])),
+            ascii_handler(Socket, [])
+    end.
 
 

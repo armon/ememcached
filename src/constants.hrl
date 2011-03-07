@@ -52,5 +52,6 @@
 % Types
 -define(TYPE_RAW, 16#0).
 
-
+% ASCII Protocol
+-define(ASCII_CLIENT_ERR, "CLIENT_ERROR ~p\r\n").
 
