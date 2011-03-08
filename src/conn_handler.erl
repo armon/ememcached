@@ -88,14 +88,15 @@ binary_handler(_Socket, _Data) -> true.
 ascii_handler(Socket, Data) -> 
     case ascii_handler:match_request(Data) of
         {true, Captured} ->
-            ascii_handler:handle_request(Socket, Data, Captured);
+            Remaining = ascii_handler:handle_request(Socket, Data, Captured),
+            ascii_handler(Socket, Remaining);
 
         false ->
-            {Socket, DataPlus} = receive_loop(Socket, Data, infinity),
+            {data, DataPlus} = receive_loop(Socket, Data, infinity),
             ascii_handler(Socket, DataPlus);
 
         impossible ->
-            gen_tcp:send(Socket, io_lib:format(?ASCII_CLIENT_ERR, ["Invalid Request Line"])),
+            ascii_handler:handle_unknown(Socket, Data, []), 
             ascii_handler(Socket, [])
     end.
 
