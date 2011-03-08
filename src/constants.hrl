@@ -1,5 +1,8 @@
 % Defines constants used in the memcached protocol
 
+% For our app
+-define(VERSION,"ememcached 0.1a").
+
 % Default ports
 -define(DEFAULT_PORT, 11211).
  
