@@ -57,4 +57,4 @@
 
 % ASCII Protocol
 -define(ASCII_CLIENT_ERR, "CLIENT_ERROR ~s\r\n").
-
+-define(ASCII_SERVER_ERR, "SERVER_ERROR ~s\r\n").
