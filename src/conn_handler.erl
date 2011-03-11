@@ -78,6 +78,19 @@ receive_loop(Socket, Data, Timeout) ->
                  timeout
     end.
 
+% Like receive loop, but continues running until there
+% is a certain amount of data available.
+receive_loop(Socket, Data, Timeout, Min) ->
+    DataLength = iolist_size(Data),
+    if
+        DataLength >= Min -> {data, Data};
+        true -> 
+            case receive_loop(Socket, Data, Timeout) of
+                {data, More} -> receive_loop(Socket, More, Timeout, Min);
+                Err -> Err
+            end
+    end.
+
 
 % Handles a binary connection
 % @spec binary_handler(Socket(), iolist()) -> void()
@@ -86,18 +99,27 @@ binary_handler(_Socket, _Data) -> true.
 % Handles an ASCII connection
 % @spec ascii_handler(Socket(), iolist()) -> void()
 ascii_handler(Socket, Data) -> 
-    case ascii_handler:match_request(Data) of
-        {true, Captured} ->
-            Remaining = ascii_handler:handle_request(Socket, Data, Captured),
-            ascii_handler(Socket, Remaining);
+    try 
+        case ascii_handler:match_request(Data) of
+            {true, Captured} ->
+                Remaining = ascii_handler:handle_request(Socket, Data, Captured),
+                ascii_handler(Socket, Remaining);
 
-        false ->
-            {data, DataPlus} = receive_loop(Socket, Data, infinity),
-            ascii_handler(Socket, DataPlus);
+            false ->
+                {data, DataPlus} = receive_loop(Socket, Data, infinity),
+                ascii_handler(Socket, DataPlus);
 
-        impossible ->
-            ascii_handler:handle_unknown(Socket, Data, []), 
+            impossible ->
+                ascii_handler:handle_unknown(Socket, Data, []), 
+                ascii_handler(Socket, [])
+        end
+    catch
+         _:_ ->
+            io:format("Caught exception!~n"),
+            erlang:display(erlang:get_stacktrace()),
+            ascii_handler:handler_server_error(Socket, Data, []),
             ascii_handler(Socket, [])
     end.
+       
 
 
