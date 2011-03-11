@@ -1,6 +1,8 @@
 -module(ascii_handler).
 -compile(export_all).
+-include("entries.hrl").
 -include("constants.hrl").
+-include("config.hrl").
 -export([match_request/1]).
 
 % Handles the details of the ASCII protocol
@@ -65,9 +67,62 @@ handle_get(_, _, _) -> true.
 % @spec handle_gets(socket(), binary(), binary()) -> iolist().
 handle_gets(_, _, _) -> true.
 
+% Splits the command on whitespace, removes 0 length elements
+parse_cmd(Args) -> [X || X <- re:split(Args, "\s+"), byte_size(X) > 0].
+
+% Ensures the inputs to a store function are valid
+% Converts ExpTime, and Byte to integer values
+% Reply is either true or false
+% @spec store_helper(list()) -> invalid | {Key,Flags,ExpTime,Byte,Reply}
+store_helper([Key, Flags, ExpTime, Byte]) ->
+    try {Key, 
+        list_to_integer(binary_to_list(Flags),10),
+        list_to_integer(binary_to_list(ExpTime), 10),
+        list_to_integer(binary_to_list(Byte), 10),
+        true}
+    catch _ -> invalid end;
+
+store_helper([Key, Flags, ExpTime, Byte, <<"noreply">>]) ->
+    case store_helper([Key, Flags, ExpTime, Byte]) of
+        invalid -> invalid;
+        {K,F,E,B,true} -> {K,F,E,B,false}
+    end;
+
+store_helper(_) -> invalid.
+
+% Reads the data for a set command
+% Takes the socket, the data we have, and
+% the bytes needed
+% @spec get_data(socket(), iolist(), int()) -> {<<binary>>,<<binary>>}
+get_data(Socket, Data, Bytes) ->
+    DataLength = iolist_size(Data),
+    if
+        DataLength >= Bytes -> split_binary(iolist_to_binary(Data), Bytes); 
+        true ->
+            {data, More} = conn_handler:receive_loop(Socket, Data, ?ASCII_RECV_TIMEOUT_MILLI, Bytes),
+            get_data(Socket, More, Bytes)
+    end.
+
 % Handles a set command
 % @spec handle_get(socket(), binary(), binary()) -> iolist().
-handle_set(_, _, _) -> true.
+handle_set(Socket, Args, Rest) ->
+    case store_helper(parse_cmd(Args)) of
+        {Key,Flags,_Exp,Byte,_Reply} ->
+            % Read the data
+            {<<Data:Byte/binary,"\r\n">>, AfterData} = get_data(Socket, Rest, Byte+2),
+
+            % Set this through the storage layer
+            storage:set(#entry{protocol = ascii,key=Key,
+                value=Data,
+                size=Byte,
+                flags=Flags,
+                expiration = infinity}),
+
+            % Return the unread data
+            AfterData;
+
+        invalid -> handle_unknown(Socket, Args, Rest)
+    end.
 
 % Handles a add command
 % @spec handle_set(socket(), binary(), binary()) -> iolist().
@@ -125,12 +180,16 @@ handle_quit(Socket, _, Rest) ->
 % Handles an unknown command
 % @spec handle_get(socket(), binary(), binary()) -> iolist().
 handle_unknown(Socket, RequestLine, Rest) -> 
-    io:format("Unknown request: ~p ~p\r\n", [RequestLine, Rest]),
+    io:format("Unknown request: ~p ~p~n", [RequestLine, Rest]),
     gen_tcp:send(Socket, io_lib:format(?ASCII_CLIENT_ERR, ["Invalid Request Line"])),
     Rest.
 
-
-
+% Handles an internall error where we barf
+% @spec handle_server_error(socket(), iolist()) -> iolist().
+handler_server_error(Socket, Data, Rest) ->
+    io:format("Internal error, data: ~p~n",[Data]),
+    gen_tcp:send(Socket, io_lib:format(?ASCII_SERVER_ERR, ["Internal Error"])),
+    Rest.
 
 
 
