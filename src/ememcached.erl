@@ -6,6 +6,9 @@
 % boostraps the rest of the system.
 
 start() ->
+  % Start the storage backend
+  storage:start(),
+
   % Start the connection handler
   conn_handler:start().
 
