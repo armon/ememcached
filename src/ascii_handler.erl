@@ -67,41 +67,7 @@ handle_get(_, _, _) -> true.
 % @spec handle_gets(socket(), binary(), binary()) -> iolist().
 handle_gets(_, _, _) -> true.
 
-% Splits the command on whitespace, removes 0 length elements
-parse_cmd(Args) -> [X || X <- re:split(Args, "\s+"), byte_size(X) > 0].
 
-% Ensures the inputs to a store function are valid
-% Converts ExpTime, and Byte to integer values
-% Reply is either true or false
-% @spec store_helper(list()) -> invalid | {Key,Flags,ExpTime,Byte,Reply}
-store_helper([Key, Flags, ExpTime, Byte]) ->
-    try {Key, 
-        list_to_integer(binary_to_list(Flags),10),
-        list_to_integer(binary_to_list(ExpTime), 10),
-        list_to_integer(binary_to_list(Byte), 10),
-        true}
-    catch _ -> invalid end;
-
-store_helper([Key, Flags, ExpTime, Byte, <<"noreply">>]) ->
-    case store_helper([Key, Flags, ExpTime, Byte]) of
-        invalid -> invalid;
-        {K,F,E,B,true} -> {K,F,E,B,false}
-    end;
-
-store_helper(_) -> invalid.
-
-% Reads the data for a set command
-% Takes the socket, the data we have, and
-% the bytes needed
-% @spec get_data(socket(), iolist(), int()) -> {<<binary>>,<<binary>>}
-get_data(Socket, Data, Bytes) ->
-    DataLength = iolist_size(Data),
-    if
-        DataLength >= Bytes -> split_binary(iolist_to_binary(Data), Bytes); 
-        true ->
-            {data, More} = conn_handler:receive_loop(Socket, Data, ?ASCII_RECV_TIMEOUT_MILLI, Bytes),
-            get_data(Socket, More, Bytes)
-    end.
 
 % Handles a set command
 % @spec handle_get(socket(), binary(), binary()) -> iolist().
@@ -192,7 +158,47 @@ handler_server_error(Socket, Data, Rest) ->
     Rest.
 
 
+% Splits the command on whitespace, removes 0 length elements
+parse_cmd(Args) -> [X || X <- re:split(Args, "\s+"), byte_size(X) > 0].
 
+% Ensures the inputs to a store function are valid
+% Converts ExpTime, and Byte to integer values
+% Reply is either true or false
+% @spec store_helper(list()) -> invalid | {Key,Flags,ExpTime,Byte,Reply}
+store_helper([Key, Flags, ExpTime, Byte]) ->
+    try {Key, 
+        list_to_integer(binary_to_list(Flags),10),
+        list_to_integer(binary_to_list(ExpTime), 10),
+        list_to_integer(binary_to_list(Byte), 10),
+        true}
+    catch _ -> invalid end;
 
+store_helper([Key, Flags, ExpTime, Byte, <<"noreply">>]) ->
+    case store_helper([Key, Flags, ExpTime, Byte]) of
+        invalid -> invalid;
+        {K,F,E,B,true} -> {K,F,E,B,false}
+    end;
 
+store_helper(_) -> invalid.
+
+% Reads the data for a set command
+% Takes the socket, the data we have, and
+% the bytes needed
+% @spec get_data(socket(), iolist(), int()) -> {<<binary>>,<<binary>>}
+get_data(Socket, Data, Bytes) ->
+    DataLength = iolist_size(Data),
+    if
+        DataLength >= Bytes -> split_binary(iolist_to_binary(Data), Bytes); 
+        true ->
+            {data, More} = conn_handler:receive_loop(Socket, Data, ?ASCII_RECV_TIMEOUT_MILLI, Bytes),
+            get_data(Socket, More, Bytes)
+    end.
+
+% Converts the expiration time to an actual unix time
+% @spec expiration_to_time(integer()) -> infinity | integer()
+expiration_to_time(0) -> infinity;
+expiration_to_time(Exp) when Exp =< 3600*24*30 -> 
+    {Big,Small,_Micro} = erlang:now(),
+    Big*1000000+Small+Exp;
+expiration_to_time(Exp) -> Exp.
 
