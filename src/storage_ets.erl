@@ -18,6 +18,12 @@ entry_to_tuple(Entry) -> {Entry#entry.key, Entry}.
 % @spec set(entry()) -> stored
 set(Entry) -> ets:insert(storage_ets_table, entry_to_tuple(Entry)), stored.
 
-
+% Called with a key to lookup, no conditions.
+% @spec get(binary()) -> entry() | notfound | expired
+get(Key) -> 
+  case ets:lookup(storage_ets_table, Key) of
+    [{Key, Entry}] -> Entry;
+    [] -> notfound
+  end.
 
 
