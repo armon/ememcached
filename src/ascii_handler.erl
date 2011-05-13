@@ -11,6 +11,8 @@
 % Returns impossible if the given input could never become a request
 % @spec match_request(IoList) -> {true, Captured} | false | impossible
 match_request(IoList) ->
+    % Match some number of non-spaces followed by a space,
+    % finally ending in a new line
     case re:run(IoList, "^(?:[^\s\r\n]+\s*)+(\r\n)?") of 
         {match, Captured} -> 
             case Captured of
@@ -61,19 +63,58 @@ handle_request(Socket, Data, Captured) ->
 
 % Handles a get command
 % @spec handle_get(socket(), binary(), binary()) -> iolist().
-handle_get(_, _, _) -> true.
+handle_get(Socket, Args, Rest) -> 
+  % Get the individual keys
+  Keys = parse_cmd(Args),
+
+  % Handle one at a time
+  handle_get_key(Socket, false, Keys),
+
+  % Return the remaining bytes
+  Rest.
+
 
 % Handles a gets command
 % @spec handle_gets(socket(), binary(), binary()) -> iolist().
-handle_gets(_, _, _) -> true.
+handle_gets(Socket, Args, Rest) -> 
+  % Get the individual keys
+  Keys = parse_cmd(Args),
 
+  % Handle one at a time, enable CAS output
+  handle_get_key(Socket, true, Keys),
+
+  % Return the remaining bytes
+  Rest.
+
+% Handles a GET for a key, optionally emits the CAS key
+% @spec handle_get_key(socket(), boolean(), list()) -> void
+handle_get_key(Socket, _UseCas, []) -> gen_tcp:send(Socket,?ASCII_END), void;
+handle_get_key(Socket, UseCas, [Key|Remain]) ->
+  % Get the entry
+  case storage:get(Key) of
+    notfound -> pass;
+    expired -> pass;
+    Entry ->
+      % Generate the response line
+      ResponseLine = case UseCas of
+        true when Entry#entry.version /= undefined -> io_lib:format(?ASCII_GET_CAS, [Entry#entry.key, Entry#entry.flags, Entry#entry.size, Entry#entry.version]);
+        _ -> io_lib:format(?ASCII_GET_NO_CAS, [Entry#entry.key, Entry#entry.flags, Entry#entry.size])
+      end,
+
+      % Send the response line and the data
+      gen_tcp:send(Socket, ResponseLine),
+      gen_tcp:send(Socket, [Entry#entry.value,"\r\n"])
+  end,
+
+  % Recurse
+  handle_get_key(Socket, UseCas, Remain).
 
 
 % Handles a set command
 % @spec handle_get(socket(), binary(), binary()) -> iolist().
 handle_set(Socket, Args, Rest) ->
     case store_helper(parse_cmd(Args)) of
-        {Key,Flags,_Exp,Byte,_Reply} ->
+        {Key,Flags,Exp,Byte,Reply} ->
             % Read the data
             {<<Data:Byte/binary,"\r\n">>, AfterData} = get_data(Socket, Rest, Byte+2),
 
@@ -82,7 +123,12 @@ handle_set(Socket, Args, Rest) ->
                 value=Data,
                 size=Byte,
                 flags=Flags,
-                expiration = infinity}),
+                expiration = expiration_to_time(Exp)}),
+
+            % Respond to the client unless "noreply" was sent
+            if 
+              Reply -> gen_tcp:send(Socket, ?ASCII_STORED)
+            end,
 
             % Return the unread data
             AfterData;
