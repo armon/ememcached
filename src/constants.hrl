@@ -58,3 +58,8 @@
 % ASCII Protocol
 -define(ASCII_CLIENT_ERR, "CLIENT_ERROR ~s\r\n").
 -define(ASCII_SERVER_ERR, "SERVER_ERROR ~s\r\n").
+-define(ASCII_STORED, "STORED\r\n").
+-define(ASCII_GET_NO_CAS, "VALUE ~s ~w ~w\r\n").
+-define(ASCII_GET_CAS, "VALUE ~s ~w ~w ~w\r\n").
+-define(ASCII_END, "END\r\n").
+
