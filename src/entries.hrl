@@ -8,7 +8,7 @@
                 key,
                 value,
                 size,
-                version, % undefined if not set, used for cas
+                version = undefined, % undefined if not set, used for cas
                 flags, % Opaque set of flags
                 expiration = infinity % Timestamp
             }).
