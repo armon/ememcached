@@ -99,27 +99,28 @@ binary_handler(_Socket, _Data) -> true.
 % Handles an ASCII connection
 % @spec ascii_handler(Socket(), iolist()) -> void()
 ascii_handler(Socket, Data) -> 
-    try 
+    Remaining = try 
         case ascii_handler:match_request(Data) of
             {true, Captured} ->
-                Remaining = ascii_handler:handle_request(Socket, Data, Captured),
-                ascii_handler(Socket, Remaining);
+                ascii_handler:handle_request(Socket, Data, Captured);
 
             false ->
                 {data, DataPlus} = receive_loop(Socket, Data, infinity),
-                ascii_handler(Socket, DataPlus);
+                DataPlus;
 
             impossible ->
-                ascii_handler:handle_unknown(Socket, Data, []), 
-                ascii_handler(Socket, [])
+                ascii_handler:handle_unknown(Socket, Data, []), []
         end
     catch
-         _:_ ->
-            io:format("Caught exception!~n"),
+         Class:Exception ->
+            io:format("Caught exception! ~p ~p~n",[Class,Exception]),
             erlang:display(erlang:get_stacktrace()),
             ascii_handler:handler_server_error(Socket, Data, []),
-            ascii_handler(Socket, [])
-    end.
+            []
+    end,
+
+    % Recurse with the remaining data
+    ascii_handler(Socket, Remaining).
        
 
 
