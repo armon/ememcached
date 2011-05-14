@@ -61,6 +61,8 @@ handle_request(Socket, Data, Captured) ->
 % Takes the socket, arguments to the request, data after the request
 % and returns any remaining unhandled data.
 
+%%%%%%% Retrieval Commands
+
 % Handles a get command
 % @spec handle_get(socket(), binary(), binary()) -> iolist().
 handle_get(Socket, Args, Rest) -> 
@@ -109,25 +111,35 @@ handle_get_key(Socket, UseCas, [Key|Remain]) ->
   % Recurse
   handle_get_key(Socket, UseCas, Remain).
 
+%%%%% Store update commands
 
-% Handles a set command
-% @spec handle_get(socket(), binary(), binary()) -> iolist().
-handle_set(Socket, Args, Rest) ->
+% Implements a generic storage command
+% We parse the request line for the components
+% and then trigger the appropriate backend function
+% @spec generic_stor(Socket(), binary(), binary(), atom) -> binary()
+generic_store(Socket, Args, Rest, Func) ->
     case store_helper(parse_cmd(Args)) of
         {Key,Flags,Exp,Byte,Reply} ->
             % Read the data
             {<<Data:Byte/binary,"\r\n">>, AfterData} = get_data(Socket, Rest, Byte+2),
 
             % Set this through the storage layer
-            storage:set(#entry{protocol = ascii,key=Key,
+            Entry = #entry{protocol = ascii,key=Key,
                 value=Data,
                 size=Byte,
                 flags=Flags,
-                expiration = expiration_to_time(Exp)}),
+                expiration = expiration_to_time(Exp)},
+
+            % Call our application function, provide the entry
+            Result = apply(storage, Func, [Entry]),
 
             % Respond to the client unless "noreply" was sent
             if 
-              Reply -> gen_tcp:send(Socket, ?ASCII_STORED)
+              Reply -> 
+                case Result of
+                  stored -> gen_tcp:send(Socket, ?ASCII_STORED);
+                  exists -> gen_tcp:send(Socket, ?ASCII_NOT_STORED)
+                end
             end,
 
             % Return the unread data
@@ -136,9 +148,13 @@ handle_set(Socket, Args, Rest) ->
         invalid -> handle_unknown(Socket, Args, Rest)
     end.
 
+% Handles a set command
+% @spec handle_get(socket(), binary(), binary()) -> iolist().
+handle_set(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, set).
+
 % Handles a add command
 % @spec handle_set(socket(), binary(), binary()) -> iolist().
-handle_add(_, _, _) -> true.
+handle_add(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, add).
 
 % Handles a replace command
 % @spec handle_replace(socket(), binary(), binary()) -> iolist().
@@ -203,6 +219,10 @@ handler_server_error(Socket, Data, Rest) ->
     gen_tcp:send(Socket, io_lib:format(?ASCII_SERVER_ERR, ["Internal Error"])),
     Rest.
 
+
+%%%%%%%%%%%%%%%%%%%%
+% Utility Helpers  %
+%%%%%%%%%%%%%%%%%%%% 
 
 % Splits the command on whitespace, removes 0 length elements
 parse_cmd(Args) -> [X || X <- re:split(Args, "\s+"), byte_size(X) > 0].
