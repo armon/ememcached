@@ -6,3 +6,7 @@
 % This is the storage backend that we use
 -define(STORAGE_BACKEND, storage_ets).
 
+% The number of storage workers
+-define(STORAGE_WORKERS, 256).
+ 
+
