@@ -30,7 +30,7 @@ init([]) ->
 % Creates our storage workers
 create_workers(_Pid, 0) -> ok;
 create_workers(Pid, WorkerNum) ->
-    WorkerSpec = {list_to_atom(integer_to_list(WorkerNum)), 
+    WorkerSpec = {list_to_atom("worker_" ++ integer_to_list(WorkerNum)), 
                   {storage_worker, start_link, [WorkerNum-1]}, 
                   permanent, 1000, worker, [storage_worker]},
     {ok, _Child} = supervisor:start_child(Pid, WorkerSpec),
@@ -58,6 +58,33 @@ get(Key) ->
 
 
 % Sets an item in the backend
+% Since this operation has a potential race condition, we
+% need to serialize it through our worker pool.
 % @spec set(entry()) -> stored
-set(Entry) -> io:format("Called set ~p~n", [Entry#entry.key]), apply(?STORAGE_BACKEND, set, [Entry]).
+set(Entry) -> 
+  Worker = get_worker(Entry),
+  io:format("Called set ~p ~p~n", [Entry#entry.key, Worker]),
+  gen_server:call(Worker, {set, Entry}).
+
+% Adds an item in the backend, if it does not exist.
+% Since this operation has a potential race condition, we
+% need to serialize it through our worker pool.
+% @spec add(Entry()) -> stored | exists
+add(Entry) ->
+  Worker = get_worker(Entry),
+  io:format("Called add ~p ~p ~n", [Entry#entry.key, Worker]),
+  gen_server:call(Worker, {add, Entry}).
+
+
+% Returns the worker responsible for handling a given key
+% @spec get_worker(Entry()) -> {global, Name}
+get_worker(Entry) ->
+  % Hash the key, into one of the buckets for our worker
+  HashValue = erlang:phash2(Entry#entry.key, ?STORAGE_WORKERS),
+
+  % Get the workers name
+  Name = list_to_atom("storage_worker_" ++ integer_to_list(HashValue)),
+
+  % Return the global handle
+  {global, Name}.
 

@@ -1,6 +1,8 @@
 -module(storage_worker).
 -behaviour(gen_server).
 -export([start_link/1,init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
+-include("config.hrl").
+-include("entries.hrl").
 
 % This module is implements a gen_server worker that is
 % used under a supervision tree created by storage.
@@ -20,8 +22,21 @@ start_link(WorkerNum) ->
 init([WorkerNum]) -> {ok, #state{worker_num=WorkerNum}}.
 
 % Handles an incoming request. These are expected frequently.
-handle_call(_Request, _From, State) -> 
-  Reply = ok,
+handle_call(Request, _From, State) -> 
+  Reply = case Request of
+    {set, Entry} -> 
+      apply(?STORAGE_BACKEND, set, [Entry]);
+
+    % Check first, then add
+    {add, Entry} ->
+      case storage:get(Entry#entry.key) of
+        #entry{} -> exists;
+      _ -> apply(?STORAGE_BACKEND, set, [Entry])
+      end;
+
+    % Unrecognized command, error
+    _ -> error
+  end,
   {reply, Reply, State}.
 
 % Handles incoming casts
