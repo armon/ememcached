@@ -58,73 +58,72 @@ get(Key) ->
     _ -> io:format("Result ~p~n", [Result]), Result
   end.
 
+%%%%% Update operations
+% Since these operations have potential race conditions, we
+% need to serialize them through our worker pool.
 
 % Sets an item in the backend
-% Since this operation has a potential race condition, we
-% need to serialize it through our worker pool.
 % @spec set(entry()) -> stored
 set(Entry) -> 
-  Worker = get_worker(Entry),
+  Worker = get_worker(Entry#entry.key),
   io:format("Called set ~p ~p~n", [Entry#entry.key, Worker]),
   gen_server:call(Worker, {set, Entry}).
 
 
 % Adds an item in the backend, if it does not exist.
-% Since this operation has a potential race condition, we
-% need to serialize it through our worker pool.
 % @spec add(Entry()) -> stored | exists
 add(Entry) ->
-  Worker = get_worker(Entry),
+  Worker = get_worker(Entry#entry.key),
   io:format("Called add ~p ~p ~n", [Entry#entry.key, Worker]),
   gen_server:call(Worker, {add, Entry}).
 
 
 % Replaces an item in the backend, if it exist.
-% Since this operation has a potential race condition, we
-% need to serialize it through our worker pool.
 % @spec add(Entry()) -> stored | notexist
 replace(Entry) ->
-  Worker = get_worker(Entry),
+  Worker = get_worker(Entry#entry.key),
   io:format("Called replace ~p ~p ~n", [Entry#entry.key, Worker]),
   gen_server:call(Worker, {replace, Entry}).
 
 
 % Appends data to an item in the backend, if it exist.
-% Since this operation has a potential race condition, we
-% need to serialize it through our worker pool.
 % @spec add(Entry()) -> stored | notexist
 append(Entry) ->
-  Worker = get_worker(Entry),
+  Worker = get_worker(Entry#entry.key),
   io:format("Called append ~p ~p ~n", [Entry#entry.key, Worker]),
   gen_server:call(Worker, {append, Entry}).
 
 
 % Prepends data to an item in the backend, if it exist.
-% Since this operation has a potential race condition, we
-% need to serialize it through our worker pool.
 % @spec add(Entry()) -> stored | notexist
 prepend(Entry) ->
-  Worker = get_worker(Entry),
+  Worker = get_worker(Entry#entry.key),
   io:format("Called prepend ~p ~p ~n", [Entry#entry.key, Worker]),
   gen_server:call(Worker, {prepend, Entry}).
 
 
 % Replaces an item in the backend, if it exist and the version matches.
 % This is basically a "check and set" operation.
-% Since this operation has a potential race condition, we
-% need to serialize it through our worker pool.
 % @spec add(Entry()) -> stored | notexist | modified
 cas(Entry) ->
-  Worker = get_worker(Entry),
+  Worker = get_worker(Entry#entry.key),
   io:format("Called cas ~p ~p ~n", [Entry#entry.key, Worker]),
   gen_server:call(Worker, {cas, Entry}).
 
 
+% Increments or decrements the value of an item in the backend if it exists
+% @spec incr(Modification()) -> {updated, NewValue} | notexist | notnum
+modify(Modification) ->
+  Worker = get_worker(Modification#modification.key),
+  io:format("Called modify ~p ~p ~n", [Modification#modification.key, Worker]),
+  gen_server:call(Worker, {mod, Modification}).
+
+
 % Returns the worker responsible for handling a given key
 % @spec get_worker(Entry()) -> {global, Name}
-get_worker(Entry) ->
+get_worker(Key) ->
   % Hash the key, into one of the buckets for our worker
-  HashValue = erlang:phash2(Entry#entry.key, ?STORAGE_WORKERS),
+  HashValue = erlang:phash2(Key, ?STORAGE_WORKERS),
 
   % Get the workers name
   Name = list_to_atom("storage_worker_" ++ integer_to_list(HashValue)),

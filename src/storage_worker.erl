@@ -66,6 +66,27 @@ handle_call(Request, _From, State) ->
         _ -> notexist
       end;
 
+    {mod, Mod} ->
+      case storage:get(Mod#modification.key) of
+        #entry{} = Existing ->
+          try
+            CurrentVal = list_to_integer(binary_to_list(iolist_to_binary(Existing#entry.value)),10),
+            Modified = case Mod#modification.operation of
+              incr -> CurrentVal + Mod#modification.value;
+              decr -> CurrentVal - Mod#modification.value
+            end,
+            NewVal = max(0, Modified) band 18446744073709551615, % Wrap at 64bits
+            ValStr = list_to_binary(integer_to_list(NewVal)),
+            NewEntry = Existing#entry{value = ValStr},
+            apply(?STORAGE_BACKEND, set, [NewEntry]),
+            {updated, ValStr}
+          catch
+            _:_ -> notnum
+          end;
+
+        _ -> notexist
+      end;
+
     % Unrecognized command, error
     _ -> error
   end,

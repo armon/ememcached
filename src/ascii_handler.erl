@@ -176,25 +176,59 @@ handle_prepend(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, prepend)
 % @spec handle_cas(socket(), binary(), binary()) -> iolist().
 handle_cas(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, cas).
 
+%%%%% Handle Delete commands
+
 % Handles a delete command
 % @spec handle_delete(socket(), binary(), binary()) -> iolist().
 handle_delete(_, _, _) -> true.
 
+% Handles a flush_all command
+% @spec handle_flush_all(socket(), binary(), binary()) -> iolist().
+handle_flush_all(_, _, _) -> true.
+
+%%%%%% Handle Modification commands
+
+generic_mod(Socket, Args, Rest, Operation) ->
+  case mod_helper(parse_cmd(Args)) of
+    {Key,Value,Reply} ->
+      % Create a modificatoin, send to the storage layer
+      Mod = #modification{key=Key,value=Value,operation=Operation},
+
+      % Call our application function, provide the entry
+      Result = apply(storage, modify, [Mod]),
+
+      % Respond to the client unless "noreply" was sent
+      if 
+        Reply -> 
+          case Result of
+            {updated, NewValue} -> gen_tcp:send(Socket, io_lib:format(?ASCII_UPDATED, [NewValue]));
+            notexist -> gen_tcp:send(Socket, ?ASCII_NOT_FOUND);
+            notnum -> gen_tcp:send(Socket, io_lib:format(?ASCII_CLIENT_ERR, ["cannot increment or decrement non-numeric value"]))
+          end
+      end,
+
+      % Return the unread data
+      Rest;
+
+    invalid -> handle_unknown(Socket, Args, Rest)
+  end.
+
+
 % Handles a incr command
 % @spec handle_incr(socket(), binary(), binary()) -> iolist().
-handle_incr(_, _, _) -> true.
+handle_incr(Socket, Args, Rest) -> generic_mod(Socket, Args, Rest, incr).
 
 % Handles a decr command
 % @spec handle_decr(socket(), binary(), binary()) -> iolist().
-handle_decr(_, _, _) -> true.
+handle_decr(Socket, Args, Rest) -> generic_mod(Socket, Args, Rest, decr).
+
+
+%%%%%%%% Special commands
 
 % Handles a stats command
 % @spec handle_stats(socket(), binary(), binary()) -> iolist().
 handle_stats(_, _, _) -> true.
 
-% Handles a flush_all command
-% @spec handle_flush_all(socket(), binary(), binary()) -> iolist().
-handle_flush_all(_, _, _) -> true.
 
 % Handles a version command
 % @spec handle_version(socket(), binary(), binary()) -> iolist().
@@ -266,6 +300,24 @@ store_helper([Key, Flags, ExpTime, Byte, Cas, <<"noreply">>]) ->
     end;
 
 store_helper(_) -> invalid.
+
+
+% Ensures the inputs to a modification function (incr / decr)
+% are valid. Converts the value to integer value.
+% Reply is either true or false
+% @spec mod_helper([binary(), binary()]) -> invalid | {Key, Value, Reply}
+mod_helper([Key, Value]) ->
+    try {Key, 
+        list_to_integer(binary_to_list(Value), 10),
+        true}
+    catch _ -> invalid end;
+
+mod_helper([Key, Value, <<"noreply">>]) ->
+    case mod_helper([Key, Value]) of
+        invalid -> invalid;
+        {K,V,true} -> {K,V,false}
+    end.
+
 
 % Reads the data for a set command
 % Takes the socket, the data we have, and

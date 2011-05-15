@@ -13,4 +13,10 @@
                 expiration = infinity % Timestamp
             }).
 
+-record(modification, {
+          key,
+          operation, % What is the type of modification
+          value % What is the value associated with the modification
+      }).
+
 
