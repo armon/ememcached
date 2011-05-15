@@ -163,11 +163,11 @@ handle_replace(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, replace)
 
 % Handles a append command
 % @spec handle_append(socket(), binary(), binary()) -> iolist().
-handle_append(_, _, _) -> true.
+handle_append(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, append).
 
 % Handles a prepend command
 % @spec handle_prepend(socket(), binary(), binary()) -> iolist().
-handle_prepend(_, _, _) -> true.
+handle_prepend(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, prepend).
 
 % Handles a cas command
 % @spec handle_cas(socket(), binary(), binary()) -> iolist().

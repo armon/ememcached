@@ -89,6 +89,26 @@ replace(Entry) ->
   gen_server:call(Worker, {replace, Entry}).
 
 
+% Appends data to an item in the backend, if it exist.
+% Since this operation has a potential race condition, we
+% need to serialize it through our worker pool.
+% @spec add(Entry()) -> stored | notexist
+append(Entry) ->
+  Worker = get_worker(Entry),
+  io:format("Called append ~p ~p ~n", [Entry#entry.key, Worker]),
+  gen_server:call(Worker, {append, Entry}).
+
+
+% Prepends data to an item in the backend, if it exist.
+% Since this operation has a potential race condition, we
+% need to serialize it through our worker pool.
+% @spec add(Entry()) -> stored | notexist
+prepend(Entry) ->
+  Worker = get_worker(Entry),
+  io:format("Called prepend ~p ~p ~n", [Entry#entry.key, Worker]),
+  gen_server:call(Worker, {prepend, Entry}).
+
+
 % Returns the worker responsible for handling a given key
 % @spec get_worker(Entry()) -> {global, Name}
 get_worker(Entry) ->

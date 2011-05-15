@@ -39,6 +39,26 @@ handle_call(Request, _From, State) ->
         _ -> notexist
       end;
 
+    {append, Entry} ->
+      case storage:get(Entry#entry.key) of
+        #entry{} = Existing ->
+          % Update the value and size
+          NewEntry = Existing#entry{value=[Existing#entry.value, Entry#entry.value],
+                                    size=Existing#entry.size + Entry#entry.size},
+          apply(?STORAGE_BACKEND, set, [NewEntry]);
+        _ -> notexist
+      end;
+
+    {prepend, Entry} ->
+      case storage:get(Entry#entry.key) of
+        #entry{} = Existing ->
+          % Update the value and size
+          NewEntry = Existing#entry{value=[Entry#entry.value, Existing#entry.value],
+                                    size=Existing#entry.size + Entry#entry.size},
+          apply(?STORAGE_BACKEND, set, [NewEntry]);
+        _ -> notexist
+      end;
+
     % Unrecognized command, error
     _ -> error
   end,
