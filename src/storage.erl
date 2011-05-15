@@ -37,7 +37,9 @@ create_workers(Pid, WorkerNum) ->
     create_workers(Pid, WorkerNum-1).
 
 
-% Gets an item from the backend
+% Gets an item from the backend. Always hit the backend
+% directly. There are possible races, involving a pending
+% write, but our semantics allow for this.
 % @spec get(binary()) -> entry() | notfound | expired
 get(Key) -> 
   io:format("Called get ~p~n", [Key]), 
@@ -66,6 +68,7 @@ set(Entry) ->
   io:format("Called set ~p ~p~n", [Entry#entry.key, Worker]),
   gen_server:call(Worker, {set, Entry}).
 
+
 % Adds an item in the backend, if it does not exist.
 % Since this operation has a potential race condition, we
 % need to serialize it through our worker pool.
@@ -74,6 +77,16 @@ add(Entry) ->
   Worker = get_worker(Entry),
   io:format("Called add ~p ~p ~n", [Entry#entry.key, Worker]),
   gen_server:call(Worker, {add, Entry}).
+
+
+% Replaces an item in the backend, if it exist.
+% Since this operation has a potential race condition, we
+% need to serialize it through our worker pool.
+% @spec add(Entry()) -> stored | notexist
+replace(Entry) ->
+  Worker = get_worker(Entry),
+  io:format("Called replace ~p ~p ~n", [Entry#entry.key, Worker]),
+  gen_server:call(Worker, {replace, Entry}).
 
 
 % Returns the worker responsible for handling a given key

@@ -27,11 +27,16 @@ handle_call(Request, _From, State) ->
     {set, Entry} -> 
       apply(?STORAGE_BACKEND, set, [Entry]);
 
-    % Check first, then add
     {add, Entry} ->
       case storage:get(Entry#entry.key) of
         #entry{} -> exists;
-      _ -> apply(?STORAGE_BACKEND, set, [Entry])
+        _ -> apply(?STORAGE_BACKEND, set, [Entry])
+      end;
+
+    {replace, Entry} ->
+      case storage:get(Entry#entry.key) of
+        #entry{} -> apply(?STORAGE_BACKEND, set, [Entry]);
+        _ -> notexist
       end;
 
     % Unrecognized command, error

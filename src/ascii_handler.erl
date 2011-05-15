@@ -138,7 +138,8 @@ generic_store(Socket, Args, Rest, Func) ->
               Reply -> 
                 case Result of
                   stored -> gen_tcp:send(Socket, ?ASCII_STORED);
-                  exists -> gen_tcp:send(Socket, ?ASCII_NOT_STORED)
+                  exists -> gen_tcp:send(Socket, ?ASCII_NOT_STORED);
+                  notexist -> gen_tcp:send(Socket, ?ASCII_NOT_STORED)
                 end
             end,
 
@@ -158,7 +159,7 @@ handle_add(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, add).
 
 % Handles a replace command
 % @spec handle_replace(socket(), binary(), binary()) -> iolist().
-handle_replace(_, _, _) -> true.
+handle_replace(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, replace).
 
 % Handles a append command
 % @spec handle_append(socket(), binary(), binary()) -> iolist().
