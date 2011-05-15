@@ -39,8 +39,8 @@ handle_request(Socket, Data, Captured) ->
     <<RequestLine:ExcludeNewLine/binary,_:2/binary,Rest/binary>> = Bin,
     io:format("Request: ~p Rest: ~p~n",[RequestLine,Rest]),
     case RequestLine of
-        <<"get",Args/binary>> -> handle_get(Socket, Args, Rest);
         <<"gets",Args/binary>> -> handle_gets(Socket, Args, Rest);
+        <<"get",Args/binary>> -> handle_get(Socket, Args, Rest);
         <<"set",Args/binary>> -> handle_set(Socket, Args, Rest);
         <<"add",Args/binary>> -> handle_add(Socket, Args, Rest);
         <<"replace",Args/binary>> -> handle_replace(Socket, Args, Rest);
@@ -98,9 +98,9 @@ handle_get_key(Socket, UseCas, [Key|Remain]) ->
     expired -> pass;
     Entry ->
       % Generate the response line
-      ResponseLine = case UseCas of
-        true when Entry#entry.version /= undefined -> io_lib:format(?ASCII_GET_CAS, [Entry#entry.key, Entry#entry.flags, Entry#entry.size, Entry#entry.version]);
-        _ -> io_lib:format(?ASCII_GET_NO_CAS, [Entry#entry.key, Entry#entry.flags, Entry#entry.size])
+      ResponseLine = if
+        UseCas -> io_lib:format(?ASCII_GET_CAS, [Entry#entry.key, Entry#entry.flags, Entry#entry.size, Entry#entry.version]);
+        true -> io_lib:format(?ASCII_GET_NO_CAS, [Entry#entry.key, Entry#entry.flags, Entry#entry.size])
       end,
 
       % Send the response line and the data
@@ -119,7 +119,7 @@ handle_get_key(Socket, UseCas, [Key|Remain]) ->
 % @spec generic_stor(Socket(), binary(), binary(), atom) -> binary()
 generic_store(Socket, Args, Rest, Func) ->
     case store_helper(parse_cmd(Args)) of
-        {Key,Flags,Exp,Byte,Reply} ->
+        {Key,Flags,Exp,Byte,Cas,Reply} ->
             % Read the data
             {<<Data:Byte/binary,"\r\n">>, AfterData} = get_data(Socket, Rest, Byte+2),
 
@@ -128,6 +128,7 @@ generic_store(Socket, Args, Rest, Func) ->
                 value=Data,
                 size=Byte,
                 flags=Flags,
+                version=Cas,
                 expiration = expiration_to_time(Exp)},
 
             % Call our application function, provide the entry
@@ -139,6 +140,8 @@ generic_store(Socket, Args, Rest, Func) ->
                 case Result of
                   stored -> gen_tcp:send(Socket, ?ASCII_STORED);
                   exists -> gen_tcp:send(Socket, ?ASCII_NOT_STORED);
+                  modified -> gen_tcp:send(Socket, ?ASCII_MODIFIED);
+                  notexist when Func == cas -> gen_tcp:send(Socket, ?ASCII_NOT_FOUND);
                   notexist -> gen_tcp:send(Socket, ?ASCII_NOT_STORED)
                 end
             end,
@@ -171,7 +174,7 @@ handle_prepend(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, prepend)
 
 % Handles a cas command
 % @spec handle_cas(socket(), binary(), binary()) -> iolist().
-handle_cas(_, _, _) -> true.
+handle_cas(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, cas).
 
 % Handles a delete command
 % @spec handle_delete(socket(), binary(), binary()) -> iolist().
@@ -237,13 +240,29 @@ store_helper([Key, Flags, ExpTime, Byte]) ->
         list_to_integer(binary_to_list(Flags),10),
         list_to_integer(binary_to_list(ExpTime), 10),
         list_to_integer(binary_to_list(Byte), 10),
+        undefined, % No CAS value provided
         true}
     catch _ -> invalid end;
 
 store_helper([Key, Flags, ExpTime, Byte, <<"noreply">>]) ->
     case store_helper([Key, Flags, ExpTime, Byte]) of
         invalid -> invalid;
-        {K,F,E,B,true} -> {K,F,E,B,false}
+        {K,F,E,B,C,true} -> {K,F,E,B,C,false}
+    end;
+
+store_helper([Key, Flags, ExpTime, Byte, Cas]) ->
+    try {Key, 
+        list_to_integer(binary_to_list(Flags),10),
+        list_to_integer(binary_to_list(ExpTime), 10),
+        list_to_integer(binary_to_list(Byte), 10),
+        list_to_integer(binary_to_list(Cas), 10),
+        true}
+    catch _ -> invalid end;
+
+store_helper([Key, Flags, ExpTime, Byte, Cas, <<"noreply">>]) ->
+    case store_helper([Key, Flags, ExpTime, Byte, Cas]) of
+        invalid -> invalid;
+        {K,F,E,B,C,true} -> {K,F,E,B,C,false}
     end;
 
 store_helper(_) -> invalid.

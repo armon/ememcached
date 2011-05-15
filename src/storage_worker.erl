@@ -59,6 +59,13 @@ handle_call(Request, _From, State) ->
         _ -> notexist
       end;
 
+    {cas, Entry} ->
+      case storage:get(Entry#entry.key) of
+        Existing when Existing#entry.version =:= Entry#entry.version -> apply(?STORAGE_BACKEND, set, [Entry]);
+        #entry{} -> modified;
+        _ -> notexist
+      end;
+
     % Unrecognized command, error
     _ -> error
   end,

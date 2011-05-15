@@ -9,8 +9,11 @@
 entry_to_tuple(Entry) -> {Entry#entry.key, Entry}.
 
 % Called with an entry to set, no pre/post conditions
+% Must increment or set a new version
 % @spec set(entry()) -> stored
-set(Entry) -> ets:insert(storage_ets_table, entry_to_tuple(Entry)), stored.
+set(Entry) -> 
+  Versioned = Entry#entry{version = random:uniform(1 bsl 64)},
+  ets:insert(storage_ets_table, entry_to_tuple(Versioned)), stored.
 
 % Called with a key to lookup, no conditions.
 % @spec get(binary()) -> entry() | notfound | expired

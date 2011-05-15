@@ -109,6 +109,17 @@ prepend(Entry) ->
   gen_server:call(Worker, {prepend, Entry}).
 
 
+% Replaces an item in the backend, if it exist and the version matches.
+% This is basically a "check and set" operation.
+% Since this operation has a potential race condition, we
+% need to serialize it through our worker pool.
+% @spec add(Entry()) -> stored | notexist | modified
+cas(Entry) ->
+  Worker = get_worker(Entry),
+  io:format("Called cas ~p ~p ~n", [Entry#entry.key, Worker]),
+  gen_server:call(Worker, {cas, Entry}).
+
+
 % Returns the worker responsible for handling a given key
 % @spec get_worker(Entry()) -> {global, Name}
 get_worker(Entry) ->
