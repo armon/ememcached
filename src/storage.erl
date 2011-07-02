@@ -118,6 +118,13 @@ modify(Modification) ->
   io:format("Called modify ~p ~p ~n", [Modification#modification.key, Worker]),
   gen_server:call(Worker, {mod, Modification}).
 
+% Deletes a given item in the bacakend if it exists
+% @spec delete(Modification()) -> deleted | notexist
+delete(Modification) ->
+  Worker = get_worker(Modification#modification.key),
+  io:format("Called delete ~p ~p ~n", [Modification#modification.key, Worker]),
+  gen_server:call(Worker, {delete, Modification}).
+
 
 % Returns the worker responsible for handling a given key
 % @spec get_worker(Entry()) -> {global, Name}
