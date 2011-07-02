@@ -96,6 +96,7 @@ handle_get_key(Socket, UseCas, [Key|Remain]) ->
   case storage:get(Key) of
     notfound -> pass;
     expired -> pass;
+    deleted -> pass;
     Entry ->
       % Generate the response line
       ResponseLine = if
@@ -142,7 +143,8 @@ generic_store(Socket, Args, Rest, Func) ->
                   exists -> gen_tcp:send(Socket, ?ASCII_NOT_STORED);
                   modified -> gen_tcp:send(Socket, ?ASCII_MODIFIED);
                   notexist when Func == cas -> gen_tcp:send(Socket, ?ASCII_NOT_FOUND);
-                  notexist -> gen_tcp:send(Socket, ?ASCII_NOT_STORED)
+                  notexist -> gen_tcp:send(Socket, ?ASCII_NOT_STORED);
+                  deleted -> gen_tcp:send(Socket, ?ASCII_NOT_STORED)
                 end
             end,
 
@@ -153,11 +155,11 @@ generic_store(Socket, Args, Rest, Func) ->
     end.
 
 % Handles a set command
-% @spec handle_get(socket(), binary(), binary()) -> iolist().
+% @spec handle_set(socket(), binary(), binary()) -> iolist().
 handle_set(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, set).
 
 % Handles a add command
-% @spec handle_set(socket(), binary(), binary()) -> iolist().
+% @spec handle_add(socket(), binary(), binary()) -> iolist().
 handle_add(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, add).
 
 % Handles a replace command
@@ -194,7 +196,7 @@ handle_delete(Socket, Args, Rest) ->
         Reply ->
           case Result of
             deleted -> gen_tcp:send(Socket, ?ASCII_DELETED);
-            notexit -> gen_tcp:send(Socket, ?ASCII_NOT_FOUND)
+            notexist -> gen_tcp:send(Socket, ?ASCII_NOT_FOUND)
           end
       end,
 
