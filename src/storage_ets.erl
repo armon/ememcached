@@ -23,6 +23,14 @@ get(Key) ->
     [] -> notfound
   end.
 
+% Called with a key to delete
+% @spec delete(binary()) -> true
+delete(Key) -> ets:delete(storage_ets_table, Key).
+
+% Called to flush the entire backend
+% @spec flush() -> true
+flush() -> ets:delete_all_objects(storage_ets_table).
+
 
 %%%%% gen_server callbacks
 
