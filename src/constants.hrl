@@ -64,6 +64,7 @@
 -define(ASCII_MODIFIED, "EXISTS\r\n").
 -define(ASCII_UPDATED, "~s\r\n").
 -define(ASCII_NOT_FOUND, "NOT_FOUND\r\n").
+-define(ASCII_DELETED, "DELETED\r\n").
 
 -define(ASCII_GET_NO_CAS, "VALUE ~s ~w ~w\r\n").
 -define(ASCII_GET_CAS, "VALUE ~s ~w ~w ~w\r\n").
