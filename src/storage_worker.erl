@@ -22,12 +22,17 @@ start_link(WorkerNum) ->
 init([WorkerNum]) -> {ok, #state{worker_num=WorkerNum}}.
 
 % Handles an incoming request.
-handle_call({set, Entry}, _From, State) -> {reply, apply(?STORAGE_BACKEND, set, [Entry]), State};
+handle_call({set, Entry}, _From, State) ->
+  {reply, case storage:get(Entry#entry.key) of
+    deleted -> stored;
+    _ -> apply(?STORAGE_BACKEND, set, [Entry])
+  end, State};
 
 
 handle_call({add, Entry}, _From, State) -> 
   {reply, case storage:get(Entry#entry.key) of
     #entry{} -> exists;
+    deleted -> deleted;
     _ -> apply(?STORAGE_BACKEND, set, [Entry])
   end, State};
 
@@ -35,6 +40,7 @@ handle_call({add, Entry}, _From, State) ->
 handle_call({replace, Entry}, _From, State) -> 
   {reply, case storage:get(Entry#entry.key) of
     #entry{} -> apply(?STORAGE_BACKEND, set, [Entry]);
+    deleted -> deleted;
     _ -> notexist
   end, State};
 
@@ -46,6 +52,7 @@ handle_call({append, Entry}, _From, State) ->
       NewEntry = Existing#entry{value=[Existing#entry.value, Entry#entry.value],
                                 size=Existing#entry.size + Entry#entry.size},
       apply(?STORAGE_BACKEND, set, [NewEntry]);
+    deleted -> deleted;
     _ -> notexist
   end, State};
 
@@ -57,6 +64,7 @@ handle_call({prepend, Entry}, _From, State) ->
       NewEntry = Existing#entry{value=[Entry#entry.value, Existing#entry.value],
                                 size=Existing#entry.size + Entry#entry.size},
       apply(?STORAGE_BACKEND, set, [NewEntry]);
+    deleted -> deleted;
     _ -> notexist
   end, State};
 
@@ -65,6 +73,7 @@ handle_call({cas, Entry}, _From, State) ->
   {reply, case storage:get(Entry#entry.key) of
     Existing when Existing#entry.version =:= Entry#entry.version -> apply(?STORAGE_BACKEND, set, [Entry]);
     #entry{} -> modified;
+    deleted -> deleted;
     _ -> notexist
   end, State};
 
@@ -93,12 +102,31 @@ handle_call({mod, Mod}, _From, State) ->
 
 handle_call({delete, Mod}, _From, State) -> 
   {reply, case storage:get(Mod#modification.key) of
-    #entry{} ->
+    #entry{} = Entry->
+      io:format("Time: ~p~n",[Mod#modification.value]),
       % Check if we delete now or in the future
       case Mod#modification.value of
-        Time when is_integer(Time) and Time > 0 ->
-          future;
-        _ -> apply(?STORAGE_BACKEND, delete, [Mod#modification.key])
+        Time when is_integer(Time), Time > 0 ->
+          % Replace entry with one with no data, mark as deleted
+          apply(?STORAGE_BACKEND, set, [Entry#entry{value=deleted,size=0}]),
+
+          % Spawn a function to run in the future
+          WorkerPid = self(),
+          spawn(fun() ->
+              {Big,Small,_Micro} = erlang:now(),
+              Now = Big*1000000+Small,
+              Delay = max(Time - Now,0),
+              io:format("Delay ~p ~n", [Delay]),
+              timer:sleep(Delay*1000), % Delay execution
+              io:format("Wake~n"),
+
+              % Dispatch again to force delete
+              gen_server:call(WorkerPid, {force_delete, Mod})
+          end);
+        
+        % No delay, delete now
+        _ -> apply(?STORAGE_BACKEND, delete, [Mod#modification.key]),
+             io:format("Deleted")
       end,
 
       % Report as deleted
@@ -106,6 +134,12 @@ handle_call({delete, Mod}, _From, State) ->
 
     _ -> notexist
   end, State};
+
+
+handle_call({force_delete, Mod}, _From, State) -> 
+  apply(?STORAGE_BACKEND, delete, [Mod#modification.key]),
+  io:format("Force Deleted"),
+  {reply, deleted, State};
 
 
 handle_call(_Request, _From, State) -> {reply, error, State}.
