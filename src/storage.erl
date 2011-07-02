@@ -40,7 +40,7 @@ create_workers(Pid, WorkerNum) ->
 % Gets an item from the backend. Always hit the backend
 % directly. There are possible races, involving a pending
 % write, but our semantics allow for this.
-% @spec get(binary()) -> entry() | notfound | expired
+% @spec get(binary()) -> entry() | notfound | expired | deleted
 get(Key) -> 
   io:format("Called get ~p~n", [Key]), 
 
@@ -54,6 +54,7 @@ get(Key) ->
   % Check if the key is not found or expired
   case Result of
     notfound -> notfound;
+    Result when Result#entry.value =:= deleted -> deleted;
     Result when Result#entry.expiration < Now -> expired;
     _ -> io:format("Result ~p~n", [Result]), Result
   end.
@@ -71,7 +72,7 @@ set(Entry) ->
 
 
 % Adds an item in the backend, if it does not exist.
-% @spec add(Entry()) -> stored | exists
+% @spec add(Entry()) -> stored | exists | deleted
 add(Entry) ->
   Worker = get_worker(Entry#entry.key),
   io:format("Called add ~p ~p ~n", [Entry#entry.key, Worker]),
@@ -79,7 +80,7 @@ add(Entry) ->
 
 
 % Replaces an item in the backend, if it exist.
-% @spec add(Entry()) -> stored | notexist
+% @spec add(Entry()) -> stored | notexist | deleted
 replace(Entry) ->
   Worker = get_worker(Entry#entry.key),
   io:format("Called replace ~p ~p ~n", [Entry#entry.key, Worker]),
@@ -87,7 +88,7 @@ replace(Entry) ->
 
 
 % Appends data to an item in the backend, if it exist.
-% @spec add(Entry()) -> stored | notexist
+% @spec add(Entry()) -> stored | notexist | deleted
 append(Entry) ->
   Worker = get_worker(Entry#entry.key),
   io:format("Called append ~p ~p ~n", [Entry#entry.key, Worker]),
@@ -95,7 +96,7 @@ append(Entry) ->
 
 
 % Prepends data to an item in the backend, if it exist.
-% @spec add(Entry()) -> stored | notexist
+% @spec add(Entry()) -> stored | notexist | deleted
 prepend(Entry) ->
   Worker = get_worker(Entry#entry.key),
   io:format("Called prepend ~p ~p ~n", [Entry#entry.key, Worker]),
@@ -104,7 +105,7 @@ prepend(Entry) ->
 
 % Replaces an item in the backend, if it exist and the version matches.
 % This is basically a "check and set" operation.
-% @spec add(Entry()) -> stored | notexist | modified
+% @spec add(Entry()) -> stored | notexist | modified | deleted
 cas(Entry) ->
   Worker = get_worker(Entry#entry.key),
   io:format("Called cas ~p ~p ~n", [Entry#entry.key, Worker]),
