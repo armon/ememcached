@@ -21,76 +21,94 @@ start_link(WorkerNum) ->
 % Initializes this worker
 init([WorkerNum]) -> {ok, #state{worker_num=WorkerNum}}.
 
-% Handles an incoming request. These are expected frequently.
-handle_call(Request, _From, State) -> 
-  Reply = case Request of
-    {set, Entry} -> 
-      apply(?STORAGE_BACKEND, set, [Entry]);
+% Handles an incoming request.
+handle_call({set, Entry}, _From, State) -> {reply, apply(?STORAGE_BACKEND, set, [Entry]), State};
 
-    {add, Entry} ->
-      case storage:get(Entry#entry.key) of
-        #entry{} -> exists;
-        _ -> apply(?STORAGE_BACKEND, set, [Entry])
+
+handle_call({add, Entry}, _From, State) -> 
+  {reply, case storage:get(Entry#entry.key) of
+    #entry{} -> exists;
+    _ -> apply(?STORAGE_BACKEND, set, [Entry])
+  end, State};
+
+
+handle_call({replace, Entry}, _From, State) -> 
+  {reply, case storage:get(Entry#entry.key) of
+    #entry{} -> apply(?STORAGE_BACKEND, set, [Entry]);
+    _ -> notexist
+  end, State};
+
+
+handle_call({append, Entry}, _From, State) -> 
+  {reply, case storage:get(Entry#entry.key) of
+    #entry{} = Existing ->
+      % Update the value and size
+      NewEntry = Existing#entry{value=[Existing#entry.value, Entry#entry.value],
+                                size=Existing#entry.size + Entry#entry.size},
+      apply(?STORAGE_BACKEND, set, [NewEntry]);
+    _ -> notexist
+  end, State};
+
+
+handle_call({prepend, Entry}, _From, State) -> 
+  {reply, case storage:get(Entry#entry.key) of
+    #entry{} = Existing ->
+      % Update the value and size
+      NewEntry = Existing#entry{value=[Entry#entry.value, Existing#entry.value],
+                                size=Existing#entry.size + Entry#entry.size},
+      apply(?STORAGE_BACKEND, set, [NewEntry]);
+    _ -> notexist
+  end, State};
+
+
+handle_call({cas, Entry}, _From, State) -> 
+  {reply, case storage:get(Entry#entry.key) of
+    Existing when Existing#entry.version =:= Entry#entry.version -> apply(?STORAGE_BACKEND, set, [Entry]);
+    #entry{} -> modified;
+    _ -> notexist
+  end, State};
+
+
+handle_call({mod, Mod}, _From, State) -> 
+  {reply, case storage:get(Mod#modification.key) of
+    #entry{} = Existing ->
+      try
+        CurrentVal = list_to_integer(binary_to_list(iolist_to_binary(Existing#entry.value)),10),
+        Modified = case Mod#modification.operation of
+          incr -> CurrentVal + Mod#modification.value;
+          decr -> CurrentVal - Mod#modification.value
+        end,
+        NewVal = max(0, Modified) band 18446744073709551615, % Wrap at 64bits
+        ValStr = list_to_binary(integer_to_list(NewVal)),
+        NewEntry = Existing#entry{value = ValStr},
+        apply(?STORAGE_BACKEND, set, [NewEntry]),
+        {updated, ValStr}
+      catch
+        _:_ -> notnum
       end;
 
-    {replace, Entry} ->
-      case storage:get(Entry#entry.key) of
-        #entry{} -> apply(?STORAGE_BACKEND, set, [Entry]);
-        _ -> notexist
-      end;
+    _ -> notexist
+  end, State};
 
-    {append, Entry} ->
-      case storage:get(Entry#entry.key) of
-        #entry{} = Existing ->
-          % Update the value and size
-          NewEntry = Existing#entry{value=[Existing#entry.value, Entry#entry.value],
-                                    size=Existing#entry.size + Entry#entry.size},
-          apply(?STORAGE_BACKEND, set, [NewEntry]);
-        _ -> notexist
-      end;
 
-    {prepend, Entry} ->
-      case storage:get(Entry#entry.key) of
-        #entry{} = Existing ->
-          % Update the value and size
-          NewEntry = Existing#entry{value=[Entry#entry.value, Existing#entry.value],
-                                    size=Existing#entry.size + Entry#entry.size},
-          apply(?STORAGE_BACKEND, set, [NewEntry]);
-        _ -> notexist
-      end;
+handle_call({delete, Mod}, _From, State) -> 
+  {reply, case storage:get(Mod#modification.key) of
+    #entry{} ->
+      % Check if we delete now or in the future
+      case Mod#modification.value of
+        Time when is_integer(Time) and Time > 0 ->
+          future;
+        _ -> apply(?STORAGE_BACKEND, delete, [Mod#modification.key])
+      end,
 
-    {cas, Entry} ->
-      case storage:get(Entry#entry.key) of
-        Existing when Existing#entry.version =:= Entry#entry.version -> apply(?STORAGE_BACKEND, set, [Entry]);
-        #entry{} -> modified;
-        _ -> notexist
-      end;
+      % Report as deleted
+      deleted;
 
-    {mod, Mod} ->
-      case storage:get(Mod#modification.key) of
-        #entry{} = Existing ->
-          try
-            CurrentVal = list_to_integer(binary_to_list(iolist_to_binary(Existing#entry.value)),10),
-            Modified = case Mod#modification.operation of
-              incr -> CurrentVal + Mod#modification.value;
-              decr -> CurrentVal - Mod#modification.value
-            end,
-            NewVal = max(0, Modified) band 18446744073709551615, % Wrap at 64bits
-            ValStr = list_to_binary(integer_to_list(NewVal)),
-            NewEntry = Existing#entry{value = ValStr},
-            apply(?STORAGE_BACKEND, set, [NewEntry]),
-            {updated, ValStr}
-          catch
-            _:_ -> notnum
-          end;
+    _ -> notexist
+  end, State};
 
-        _ -> notexist
-      end;
 
-    % Unrecognized command, error
-    _ -> error
-  end,
-  {reply, Reply, State}.
+handle_call(_Request, _From, State) -> {reply, error, State}.
 
 % Handles incoming casts
 % These are also unexpected.
