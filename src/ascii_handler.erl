@@ -180,7 +180,29 @@ handle_cas(Socket, Args, Rest) -> generic_store(Socket, Args, Rest, cas).
 
 % Handles a delete command
 % @spec handle_delete(socket(), binary(), binary()) -> iolist().
-handle_delete(_, _, _) -> true.
+handle_delete(Socket, Args, Rest) ->
+  case del_helper(parse_cmd(Args)) of
+    {Key, Exp, Reply} ->
+      % Create a modification
+      Mod = #modification{key=Key,value=expiration_to_time(Exp),operation=delete},
+
+      % Apply the delete
+      Result = apply(storage, delete, [Mod]),
+
+      % Respond to the client, unless "noreply"
+      if 
+        Reply ->
+          case Result of
+            deleted -> gen_tcp:send(Socket, ?ASCII_DELETED);
+            notexit -> gen_tcp:send(Socket, ?ASCII_NOT_FOUND)
+          end
+      end,
+
+      % Return the unread data
+      Rest;
+
+    invalid -> handle_unknown(Socket, Args, Rest)
+  end.
 
 % Handles a flush_all command
 % @spec handle_flush_all(socket(), binary(), binary()) -> iolist().
@@ -318,6 +340,27 @@ mod_helper([Key, Value, <<"noreply">>]) ->
         {K,V,true} -> {K,V,false}
     end.
 
+% Ensures the inputs to a delete function are valid.
+% Converts the time to an integer or now if not provided.
+% Reply is either true or false
+% @spec del_helper([binary()..]) -> invalid | {Key, Time, Reply}
+del_helper([Key]) -> {Key, now, true};
+del_helper([Key, <<"noreply">>]) -> {Key, now, false};
+
+del_helper([Key, Time]) ->
+  try {Key,
+      list_to_integer(binary_to_list(Time), 10),
+      true}
+  catch _ -> invalid end;
+
+del_helper([Key, Time, <<"noreply">>]) ->
+  case del_helper([Key, Time]) of 
+      invalid -> invalid;
+      {K,E,true} -> {K,E,false}
+  end;
+
+del_helper(_) -> invalid.
+
 
 % Reads the data for a set command
 % Takes the socket, the data we have, and
@@ -333,8 +376,9 @@ get_data(Socket, Data, Bytes) ->
     end.
 
 % Converts the expiration time to an actual unix time
-% @spec expiration_to_time(integer()) -> infinity | integer()
+% @spec expiration_to_time(integer()) -> infinity | now | integer()
 expiration_to_time(0) -> infinity;
+expiration_to_time(now) -> now;
 expiration_to_time(Exp) when Exp =< 3600*24*30 -> 
     {Big,Small,_Micro} = erlang:now(),
     Big*1000000+Small+Exp;
