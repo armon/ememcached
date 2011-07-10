@@ -208,7 +208,28 @@ handle_delete(Socket, Args, Rest) ->
 
 % Handles a flush_all command
 % @spec handle_flush_all(socket(), binary(), binary()) -> iolist().
-handle_flush_all(_, _, _) -> true.
+handle_flush_all(Socket, Args, Rest) ->
+  case flush_helper(parse_cmd(Args)) of
+    {Time, Reply} ->
+      % Create a modification object
+      Mod = #modification{operation=flush,value=expiration_to_time(Time)},
+
+      % Invoke the storage layer
+      Result = apply(storage, flush, [Mod]),
+
+      % Respond unless "noreply" is set
+      if
+        Reply ->
+          case Result of
+            deleted -> gen_tcp:send(Socket, ?ASCII_OK)
+          end
+      end,
+  
+      % Return the unread data
+      Rest;
+
+    invalid -> handle_unknown(Socket, Args, Rest)
+  end.
 
 %%%%%% Handle Modification commands
 
@@ -362,6 +383,25 @@ del_helper([Key, Time, <<"noreply">>]) ->
   end;
 
 del_helper(_) -> invalid.
+
+
+% Ensures the inputs to flush_all function are valid.
+% Converts the time to an integer, or now if not provided.
+% Reply is either true or false.
+% @spec flush_helper([binary(),...]) -> invalid | {Time, Reply}
+flush_helper([]) -> {now, true};
+flush_helper([<<"noreply">>]) -> {now, false};
+flush_helper([Time]) ->
+    try {list_to_integer(binary_to_list(Time),10), true}
+    catch _ -> invalid end;
+
+flush_helper([Time,<<"noreply">>]) ->
+    case flush_helper([Time]) of
+        invalid -> invalid;
+        {T,true} -> {T,false}
+    end;
+
+flush_helper(_) -> invalid.
 
 
 % Reads the data for a set command

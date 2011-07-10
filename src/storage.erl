@@ -126,6 +126,24 @@ delete(Modification) ->
   io:format("Called delete ~p ~p ~n", [Modification#modification.key, Worker]),
   gen_server:call(Worker, {delete, Modification}).
 
+% Flushes the storage backend
+% @spec flush(Modification()) -> deleted
+flush(Modification) ->
+    case Modification#modification.value of
+        now -> apply(?STORAGE_BACKEND, flush, []);
+        Time ->
+          spawn(fun() ->
+              {Big,Small,_Micro} = erlang:now(),
+              Now = Big*1000000+Small,
+              Delay = max(Time - Now,0),
+              io:format("Delay ~p ~n", [Delay]),
+              timer:sleep(Delay*1000), % Delay execution
+              io:format("Wake~n"),
+              apply(?STORAGE_BACKEND, flush, [])
+          end)
+    end,
+    deleted.
+
 
 % Returns the worker responsible for handling a given key
 % @spec get_worker(Entry()) -> {global, Name}
