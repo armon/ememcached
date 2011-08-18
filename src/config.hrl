@@ -8,5 +8,9 @@
 
 % The number of storage workers
 -define(STORAGE_WORKERS, 256).
+
+% This is the length of time in milliseconds
+%  between ETS expiration reaping
+-define(ETS_REAP_INTERVAL_MILLI, 5000).
  
 
