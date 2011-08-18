@@ -1,9 +1,9 @@
 -module(storage_ets).
 -compile(export_all).
 -include("entries.hrl").
--behaviour(gen_server).
--export([start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
-
+-include("config.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
+-export([start_link/0,init/1]).
 
 % Takes an entry, returns a tuple we can use
 entry_to_tuple(Entry) -> {Entry#entry.key, Entry}.
@@ -31,38 +31,51 @@ delete(Key) -> ets:delete(storage_ets_table, Key).
 % @spec flush() -> true
 flush() -> ets:delete_all_objects(storage_ets_table).
 
-
-%%%%% gen_server callbacks
-
-% Our state object
--record(state, {ets_table}).
-
 % Starts the server
 % @spec start_link() -> {ok, Pid()} | ignore | {error, Error()}
-start_link() -> 
-  gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link() -> supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 % Initializes this backend.
 % Creates the ets table.
 init([]) -> 
-  Table = ets:new(storage_ets_table, [set,public,named_table, {write_concurrency,true}, {read_concurrency, true}]),
-  {ok, #state{ets_table=Table}}.
+  EtsTable = {storage_ets_table, {?MODULE, start_ets, []}, 
+                permanent, 3000, worker, [?MODULE]},
+  Reaper = {storage_ets_reaper, {?MODULE, start_reaper, []}, 
+                permanent, 30000, worker, [?MODULE]},
+  {ok, {{one_for_one, 3, 60}, [EtsTable,Reaper]}}.
 
-% Handles an incoming request. These are not expected
-handle_call(_Request, _From, State) -> {reply, ok, State}.
+% Starts a new ETS table, waits for any EXIT calls
+% and properly closes the ETS table.
+start_ets() ->
+    {ok, spawn_link(fun() ->
+      io:format("ETS table started~n"),
+      process_flag(trap_exit, true),
+      Table = ets:new(storage_ets_table, [set,public,named_table, {write_concurrency,true}, {read_concurrency, true}]),
+      receive 
+          {'EXIT', _From, Reason} -> ets:delete(Table), exit(Reason)
+      end
+    end)}.
 
-% Handles incoming casts
-% These are also unexpected.
-handle_cast(_Msg, State) -> {noreply, State}.
+% Starts a new reaper process which scans for any
+% expired keys on an interval
+start_reaper() -> {ok, spawn_link(?MODULE, reaper, [])}.
 
-% Handles spontaneous info messages
-% We don't expect any
-handle_info(_Info, State) -> {noreply, State}.
+% Periodically scans for expired keys, deletes them.
+reaper() ->
+    timer:sleep(?ETS_REAP_INTERVAL_MILLI),
+    scan_keys(),
+    reaper().
 
-% Called upon our termination
-% Deletes the table, exits
-terminate(_Reason, State) -> ets:delete(State#state.ets_table), ok.
+scan_keys() ->
+    % Get the current time
+    {Big,Small,_Micro} = erlang:now(),
+    Now = Big*1000000+Small,
+        
+    % Generate a match spec to find expired keys
+    MatchSpec = ets:fun2ms(fun({_Key, #entry{expiration=E}}) when E =< Now -> true end),
 
-% Handles code changes on the fly
-code_change(_OldVsn, State, _Extra) -> {ok, State}.
+    % Reap the table
+    NumReaped = ets:select_delete(storage_ets_table, MatchSpec),
+    io:format("Reaped ~p entries!~n", [NumReaped]).
+
 
